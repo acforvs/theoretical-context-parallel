@@ -30,7 +30,7 @@ class CPStrategy(ABC):
     ) -> float:
         """Roofline estimate for one FlashAttention invocation."""
         dh = self.attn.head_dim
-        compute_time = 4 * q_heads * dh * pairs / self.hw.compute_flops
+        compute_time = 4 * q_heads * dh * pairs / self.hw.flash_flops
         elements = 2 * q_tokens * q_heads * dh + 2 * kv_tokens * kv_heads * dh
         memory_time = elements * self.attn.dtype_bytes / self.hw.memory_bandwidth
         return max(compute_time, memory_time) + self.hw.flash_launch_latency

@@ -45,3 +45,33 @@ latency after compilation and warmup; `--warmup` and `--rep` are milliseconds.
 not FA4 kernel configuration. Verify those assumptions before using a tiled
 fit. Results also include useful/tiled FLOPs and estimated Q/K/V/output bytes
 for a roofline fit. The existing analyzer fits a linear compute-only model.
+
+## GB300 projection GEMMs
+
+`bench_gemm.py` benchmarks tier7_gen2 BF16 QKV and output projections using
+Transformer Engine (`transformer_engine.pytorch.Linear`, no bias). It fixes
+hidden size 7168, 64 Q heads, 8 KV heads, and head dimension 128. The default sweep uses
+32768 tokens (microbatch 1), TP and CP each in {1, 2, 4, 8, 16}, and three
+measurements per shape. Inputs and contiguous `[out_features, in_features]`
+weights are allocated outside timing; output allocation is included. Timing
+uses warmed eager calls, not CUDA graphs. Each TE module runs a local GEMM
+with TP already reflected in its dimensions;
+distributed collectives, normalization, FP8, and backward are excluded.
+
+```bash
+python benchmarks/bench_gemm.py --output benchmarks/results/gemm_te_gb300_results.json
+python benchmarks/analyze_gemm_results.py benchmarks/results/gemm_te_gb300_results.json
+```
+
+Both projections process `32768 / CP` rows after the SP all-gather. TP=16
+replicates KV heads. All 25 TP/CP pairs can benchmark GEMMs, while pairs with
+TP*CP > 64 are marked unsupported for full Ulysses. Global batch size does not
+change per-invocation GEMM shapes.
+
+These are ungated projection shapes; the gated tier7_gen2 projection also
+includes an output-gate block and requires a separate calibration.
+
+The analyzer reports unconstrained linear fits and nonnegative roofline fits
+with fixed effective HBM bandwidth (default 5.6 TB/s), jointly and separately
+by projection and TP. Errors are in-sample. Inspect residuals and timing
+variation before adopting one shared throughput/overhead pair.
